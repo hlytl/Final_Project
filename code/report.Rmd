@@ -8,7 +8,7 @@ header-includes:
 ---
 
 ```{r echo=FALSE,results='hide',message=FALSE}
-setwd("./data")
+setwd("../data")
 
 #install.packages("lme4")
 #install.packages("pROC")
