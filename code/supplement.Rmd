@@ -1,0 +1,127 @@
+---
+title: "Supplement"
+output: pdf_document
+---
+
+### Supplement1: Missing Data
+The variable of interest in our analysis are position in fatality accident and age. For position in fatality accidentamong which there are 888 missing data. There are 29 categories,  and 12 of them have less than 100 observations(245 in total). We only use the categories have more than 100 observations.
+
+### Supplement2&3: Model Selection and Cross-validation
+We fitted three logistic regression models and used  using AUC to rank models. First we randomly sampled 10 percent(7800) of the total observations for an unbiased estimate of the error rate of final model. Then we used the 90%(70266) left for model fitting and selection. We did a 10-fold cross-validation with the 70266 observations on each of our models:
+
+Model1:
+$$
+\text{logit}Pr(Survivor_i=0) = \beta_0 + \boldsymbol{\beta_1}f(Position_i) + .
+$$
+Model2:
+$$
+\text{logit}Pr(Survivor_i=0) = \beta_0 + \boldsymbol{\beta_1}f(Position_i) + \boldsymbol{\beta_2}Age_i.
+$$
+Model3:
+$$
+\text{logit}Pr(Survivor_i=0) = \beta_0 + \boldsymbol{\beta_1} Position_i + \boldsymbol{\beta_2} Age_i + \boldsymbol{\beta_3} Extricate_i + \boldsymbol{\beta_4} Restraint_i + \boldsymbol{\beta_5} Alcohol_i + \boldsymbol{\beta_6} Intersection_i
+$$
+
+We used roc function(default) from Package("pROC")[1] to calculate ROC curve and AUC for each model. 
+
+
+```{r fig.height=6,results='hide',fig.width=10,echo=FALSE,message=FALSE,warning=FALSE}
+setwd("./data")
+
+#install.packages("lme4")
+#install.packages("pROC")
+#install.packages("gridExtra")
+library(gridExtra)
+library(lme4)
+library(readxl)
+library(dplyr)
+library(pROC)
+library(ggplot2)
+library(xtable)
+library(boot)
+person_data <- read.csv(file = "PER_AUX.CSV",header=TRUE)
+person_data_add <- read.csv(file = "person.csv",header=TRUE)
+
+person_data <- person_data %>% arrange(ST_CASE,VEH_NO,PER_NO)
+person_data_add <- person_data_add %>% arrange(ST_CASE,VEH_NO,PER_NO)
+person_whole <- cbind(person_data, person_data_add)
+person_whole <- as.data.frame(t(unique(t(person_whole))))
+
+person_whole$A_PERINJ <- ifelse(person_whole$A_PERINJ==6,0,1)
+person_whole$SEAT_POS <- ifelse(person_whole$SEAT_POS %in% c(00,11,12,13,21,22,23,29,31,32,33,50,51,52,98,99),person_whole$SEAT_POS,99)
+
+person_whole$A_ALCTES <- ifelse(person_whole$A_ALCTES %in% c(3,4,5),3,person_whole$A_ALCTES)
+set.seed(1234)
+person_whole <- person_whole %>% filter(A_AGE6!=10,SEAT_POS!=99&SEAT_POS!=98)
+
+id_origin <- sample(1:nrow(person_whole),replace = FALSE)
+id <- id_origin[7801:length(id_origin)]
+#response_data <- list()
+#predict_data <- list()
+folds <- cut(id,breaks=10,labels=FALSE)
+test_result2<- rep(0,length(id))
+test_result3<- rep(0,length(id))
+test_result1<- rep(0,length(id))
+select_person_whole <- person_whole[id,]
+for(i in 1:10){
+  testIndexes <- which(folds==i,arr.ind=TRUE)
+    test_data <- select_person_whole[testIndexes, ]
+    training_data <- select_person_whole[-testIndexes, ]
+   
+##training_data <- person_whole[id[-(((i-1)*round(length(id)/10)+1):(i*round(length(id)/10)))],]
+##test_data <- person_whole[id[((i-1)*round(length(id)/10)+1):(i*round(length(id)/10))],]
+#}
+#training_data <- person_whole[id[1:40587],]
+#test_data <- person_whole[id[40588:78310],]
+
+###only with variable in first file
+#fit1 <- lmer(A_PERINJ ~ factor(A_EJECT)+factor(A_REST)+factor(A_AGE6)+factor(A_ALCTES)+factor(A_LOC)+factor(A_REST)+factor(A_PTYPE)+(1|STATE),data=training_data)
+#fit1 <- lmer(A_PERINJ ~ factor(A_HISP)+(1|STATE),data=training_data)
+#+factor(A_EJECT) did not improve the roc
+#+factor(A_REST) did not improve the roc
+#+factor(A_PTYPE) did not improve the roc
+#par(mfrow=c(1,3))
+fit2 <- glm(A_PERINJ ~ factor(SEAT_POS),family="binomial",data=training_data)
+fit3 <- glm(A_PERINJ ~ factor(SEAT_POS)+factor(A_AGE6),family="binomial",data=training_data)
+test_result2[(testIndexes)] <- predict(fit2,newdata = test_data,type = "response")
+#roc_data2[(testIndexes)] <- roc(response=(test_data$A_PERINJ),predictor = (test_result) )
+test_result3[(testIndexes)] <- predict(fit3,newdata = test_data,type = "response")
+
+#fit3 <- glm(A_PERINJ ~ factor(SEAT_POS)+factor(A_LOC)+factor(EXTRICAT),family="binomial",data=training_data)
+###use variable in two files
+#fit1 <- glmer(A_PERINJ ~ factor(A_EJECT)+factor(A_REST)+factor(A_AGE6)+factor(A_ALCTES)+factor(A_LOC)+factor(A_REST)+factor(A_PTYPE)+factor(SEAT_POS)+factor(EXTRICAT)+factor(DRUGS)+(1|STATE),data=training_data,family="binomial")
+#test_result <- predict(fit3,newdata = test_data)
+#roc_data <- roc(response=test_data$A_PERINJ,predictor = test_result )
+#plot(roc_data,main="model2")
+fit1 <- glm(A_PERINJ ~factor(SEAT_POS)+factor(A_AGE6) +factor(A_REST)+factor(A_ALCTES)+factor(A_LOC)+factor(EXTRICAT),family="binomial",data=training_data)
+test_result1[(testIndexes)]  <- predict(fit1,newdata = test_data,type = "response")
+#roc_data1 <- roc(response=(test_data$A_PERINJ),predictor =( test_result) )
+#plot(roc_data1,main="model3")
+}
+roc_data1 <- roc(response=select_person_whole$A_PERINJ,predictor =( test_result1) )
+roc_data2 <- roc(response=(select_person_whole$A_PERINJ),predictor =( test_result2) )
+roc_data3 <- roc(response=(select_person_whole$A_PERINJ),predictor =( test_result3) )
+result_final <- predict(fit1,newdata = person_whole[id_origin[1:7800],],type = "response")
+roc_final <- roc(response=person_whole[id_origin[1:7800],]$A_PERINJ,predictor =result_final )
+par(mfrow=c(1,3),oma=c(0,0,2,0))
+plot(roc_data2,main="A: Model1",text=roc_data2$auc)
+# plot.roc(roc_data2, type="b", pch=21, col="blue", bg="grey")
+plot(roc_data3,,main="B: Model2")
+plot(roc_data1,,main="C: Model3")
+mtext("Figure1:ROC curve For Model selection",outer = TRUE,cex=1.5)
+```
+
+We ranked models with AUC(Model1 `r round(roc_data2$auc,2) `,Model2 `r round(roc_data3$auc,2) `,Model3 `r round(roc_data1$auc,2) `).
+
+For estimate of the error rate of final model, we used the 10 percent(7800) of the total observations we preserved at the begining, the ROC curve showed below, with AUC `r round(roc_final$auc,2) `
+
+```{r fig.height=6,results='hide',fig.width=10,echo=FALSE,message=FALSE,warning=FALSE}
+par(mfrow=c(1,1),oma=c(0,0,2,0))
+plot(roc_final)
+mtext("Figure2 :ROC curve For Final model",outer = TRUE,cex=1.5)
+```
+
+
+### Reference
+
+[1]Xavier Robin, Natacha Turck, Alexandre Hainard, et al. (2011) “pROC: an open-source package for R and S+ to analyze and compare ROC curves”. BMC Bioinformatics, 7, 77. DOI: 10.1186/1471-2105-12-77.

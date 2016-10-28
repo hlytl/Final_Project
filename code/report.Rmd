@@ -1,0 +1,291 @@
+---
+title: 'Location in Accident Related to Death of Injured Persons in Fatality Traffic Crash '
+author: "Ding Ding"
+output: pdf_document
+header-includes:
+- \usepackage{multirow}
+- \usepackage{graphicx}
+---
+
+```{r echo=FALSE,results='hide',message=FALSE}
+setwd("./data")
+
+#install.packages("lme4")
+#install.packages("pROC")
+#install.packages("gridExtra")
+library(grid)
+library(gridExtra)
+library(lme4)
+library(readxl)
+library(dplyr)
+library(pROC)
+library(ggplot2)
+library(xtable)
+library(boot)
+person_data <- read.csv(file = "PER_AUX.CSV",header=TRUE)
+person_data_add <- read.csv(file = "person.csv",header=TRUE)
+
+person_data <- person_data %>% arrange(ST_CASE,VEH_NO,PER_NO)
+person_data_add <- person_data_add %>% arrange(ST_CASE,VEH_NO,PER_NO)
+person_whole <- cbind(person_data, person_data_add)
+person_whole <- as.data.frame(t(unique(t(person_whole))))
+
+person_whole$A_PERINJ <- ifelse(person_whole$A_PERINJ==6,0,1)
+person_whole$SEAT_POS <- ifelse(person_whole$SEAT_POS %in% c(00,11,12,13,21,22,23,29,31,32,33,50,51,52,98,99),person_whole$SEAT_POS,99)
+
+person_whole$A_ALCTES <- ifelse(person_whole$A_ALCTES %in% c(3,4,5),3,person_whole$A_ALCTES)
+
+```
+
+## Introduction
+
+A fatal traffic crash is a collision that involves a motor vehicle traveling on a trafficway customarily open to the public, and must result in the death of an occupant of a vehicle or a non-occupant within 30 days (720 hours) of the crash. On the United States highways, motor vehicle fatality traffic crashes resulted in 35092 lives lost, 45495 injured persons, and billions of dollars in property damage[1] in 2015 alone. For those 80587 injured in fatal crashes, they either succumbed to injuries or survived. The aim of this analysis is to estimate the risk factors related to death of injuried persons in fatal traffic crashes.
+
+Risk factors that may play key roles in death of fatal traffic crashes include the location of the person in the crash (i.e., position inside/outside vehicle)[2], age, blood alcohol level, safety belt use, whether they were ejected and extricated from the vehicle[3], among others. Types of locations include pedestrian, pedalcyclist (e.g., bicyclist), driver and various occupant positions in the vehicle. Blood alcohol content (“BAC”) is generally tested on-site with a breathalyzer. Elucidating the relationship of risk factors that ultimately lead to traffic fatalities can be leveraged to decrease the overall mortality in such accidents. Here we performed an analysis to determine if there was a significant association between death of injuried persons in fatality cases and the key variables and confounders involved.
+
+## Methods
+
+### Data Collection
+
+Our analysis based on open data of 2015 from Fatality Analysis Reporting System (FARS), an annual census of all fatal motor vehicle crashes occurring in the United States. Data was downloaded on September 9, 2016 using R programming language[4].
+
+### Exploratory Analysis
+
+Exploratory analysis was performed on injured persons' information. We identified all the injuried people in fatal traffic crashes and categorized them as death or survivor, which is a binary outcome for the analysis. Observations that are missing data with respect to key variables (1133 missing  in location of person in the crash and 1668 in age, in total 2521 out of 80587) are excluded from the analysis(Supplementary 1).
+ 
+We plotted and tables all the potental risk factors and confounders (e.g. Person Type showed in Figure1A &1B). We found that age interval and individuals position/location with respect to the accidents have a great impact on fatality rate.
+ 
+
+```{r fig.height=6,fig.width=12,echo=FALSE,message=FALSE,warning=FALSE}
+par(mfrow=c(1,2),oma = c(0, 0, 2, 0),mar = c(4, 2, 1, 1))
+temp <- as.factor(person_whole$A_PTYPE)
+levels(temp) <- c("Driver","Occupant","Pedestrian","pedalcyclist","Other")
+barplot(prop.table(table(temp)),cex.names = 1,xlab = "A:Fatal+Survivor",ylab="Percentage")
+#title("Figure1a")
+temp1 <- temp[person_whole$A_PERINJ==1]
+barplot(prop.table(table(temp1)),cex.names = 1,xlab = "B:Fatal",ylab="Percentage")
+#title("Figure1b")
+mtext("Figure1: Histogram of Injured and dead persons in Fatality crashes",outer = TRUE,cex=1.5,font = 2)
+
+
+```
+
+### Statistical Modeling
+
+To estimate the risk factors related to death of injuried persons in fatal traffic crashes, we fit the data to a logistic regression model[5]. Model selection was performed on the basis of our exploratory analysis, the type of response(binary) and prior knowledge of the relationship between the variables and response. Models are estimated with cross-validation[6], Receiver Operating Characteristic (ROC) curve(Supplementary Fig.1) and Area Under Curve(AUC).
+
+## Results
+
+The fatal traffic crash data used in this analysis contains information measured as the  Person injury Type(Survivor,1-Fatal,0-Survivor), location of the person with the vehicle(Position,includes Non-Motor Vehicle Occupant and Motor Vehicle Occupant in different positions), age intervals(Age), Restraint Use(Restraint), Non-Motorist Location(Intersection, within an intersection or not), if equipment or other force was used to remove this person from the vehicle(Extricate) and blood alcohol test result(Alcohol).
+
+
+```{r echo=FALSE,results='hide',message=FALSE,warning=FALSE}
+set.seed(1234)
+person_whole <- person_whole %>% filter(A_AGE6!=10,SEAT_POS!=99&SEAT_POS!=98)
+#plot_sample <- sample(nrow(person_whole),2000,replace = FALSE)
+#fig1 <- ggplot(person_whole[plot_sample,], aes(x=A_AGE6, y=A_PERINJ, group=( A_EJECT), colour=factor(A_EJECT) )) + geom_jitter(size=0.5) + geom_smooth(size=1.1, alpha=0.5) + ylab('Zero Expenditures') + ggtitle('Figure 1') + xlab("Age") + scale_linetype_manual('EXTRICAT', values=c(1,2,3)) + theme_bw() + theme(axis.text.y=element_text(angle=90, hjust=0.5), plot.margin=rep(unit(0,"null"),4), legend.position='bottom', legend.box='horizontal', text=element_text(size=9), legend.text=element_text(size=6)) + scale_x_continuous(breaks=seq(40,80,10))
+```
+
+
+```{r echo=FALSE,results='hide',message=FALSE,warning=FALSE}
+set.seed(1234)
+id_origin <- sample(1:nrow(person_whole),replace = FALSE)
+id <- id_origin[7801:length(id_origin)]
+#response_data <- list()
+#predict_data <- list()
+folds <- cut(id,breaks=10,labels=FALSE)
+test_result2<- rep(0,length(id))
+test_result3<- rep(0,length(id))
+test_result1<- rep(0,length(id))
+select_person_whole <- person_whole[id,]
+for(i in 1:10){
+  testIndexes <- which(folds==i,arr.ind=TRUE)
+    test_data <- select_person_whole[testIndexes, ]
+    training_data <- select_person_whole[-testIndexes, ]
+   
+##training_data <- person_whole[id[-(((i-1)*round(length(id)/10)+1):(i*round(length(id)/10)))],]
+##test_data <- person_whole[id[((i-1)*round(length(id)/10)+1):(i*round(length(id)/10))],]
+#}
+#training_data <- person_whole[id[1:40587],]
+#test_data <- person_whole[id[40588:78310],]
+
+###only with variable in first file
+#fit1 <- lmer(A_PERINJ ~ factor(A_EJECT)+factor(A_REST)+factor(A_AGE6)+factor(A_ALCTES)+factor(A_LOC)+factor(A_REST)+factor(A_PTYPE)+(1|STATE),data=training_data)
+#fit1 <- lmer(A_PERINJ ~ factor(A_HISP)+(1|STATE),data=training_data)
+#+factor(A_EJECT) did not improve the roc
+#+factor(A_REST) did not improve the roc
+#+factor(A_PTYPE) did not improve the roc
+#par(mfrow=c(1,3))
+fit2 <- glm(A_PERINJ ~ factor(SEAT_POS),family="binomial",data=training_data)
+fit3 <- glm(A_PERINJ ~ factor(SEAT_POS)+factor(A_AGE6),family="binomial",data=training_data)
+test_result2[(testIndexes)] <- predict(fit2,newdata = test_data,type = "response")
+#roc_data2[(testIndexes)] <- roc(response=(test_data$A_PERINJ),predictor = (test_result) )
+test_result3[(testIndexes)] <- predict(fit3,newdata = test_data,type = "response")
+
+#fit3 <- glm(A_PERINJ ~ factor(SEAT_POS)+factor(A_LOC)+factor(EXTRICAT),family="binomial",data=training_data)
+###use variable in two files
+#fit1 <- glmer(A_PERINJ ~ factor(A_EJECT)+factor(A_REST)+factor(A_AGE6)+factor(A_ALCTES)+factor(A_LOC)+factor(A_REST)+factor(A_PTYPE)+factor(SEAT_POS)+factor(EXTRICAT)+factor(DRUGS)+(1|STATE),data=training_data,family="binomial")
+#test_result <- predict(fit3,newdata = test_data)
+#roc_data <- roc(response=test_data$A_PERINJ,predictor = test_result )
+#plot(roc_data,main="model2")
+fit1 <- glm(A_PERINJ ~factor(SEAT_POS)+factor(A_AGE6) +factor(A_REST)+factor(A_ALCTES)+factor(A_LOC)+factor(EXTRICAT),family="binomial",data=training_data)
+test_result1[(testIndexes)]  <- predict(fit1,newdata = test_data,type = "response")
+#roc_data1 <- roc(response=(test_data$A_PERINJ),predictor =( test_result) )
+#plot(roc_data1,main="model3")
+}
+roc_data1 <- roc(response=select_person_whole$A_PERINJ,predictor =( test_result1) )
+roc_data2 <- roc(response=(select_person_whole$A_PERINJ),predictor =( test_result2) )
+roc_data3 <- roc(response=(select_person_whole$A_PERINJ),predictor =( test_result3) )
+result_final <- predict(fit1,newdata = person_whole[id_origin[1:7800],],type = "response")
+roc_final <- roc(response=person_whole[id_origin[1:7800],]$A_PERINJ,predictor =result_final )
+
+```
+
+Based on exploratory analysis, we fit the first logistic regession relating fatal injury(Survivor=0) to only position in the accidents(Model1), both position in the accidents age interval(Model2).
+ 
+$$
+\text{logit}Pr(Survivor_i=0) = \beta_0 + \boldsymbol{\beta_1}f(Position_i) + \boldsymbol{\beta_2}Age_i.
+$$
+We evaluated the model by cross-validation[4] with AUC `r round(roc_data2$auc,2) `(Supplementary 2). Then we aimed to improve prediction by adjusting models to include potential confounders. Our final model(Model3) for fatal injuries is
+
+$$
+\text{logit}Pr(Survivor_i=0) = \beta_0 + \boldsymbol{\beta_1} Position_i + \boldsymbol{\beta_2} Age_i + \boldsymbol{\beta_3} Extricate_i + \boldsymbol{\beta_4} Restraint_i + \boldsymbol{\beta_5} Alcohol_i + \boldsymbol{\beta_6} Intersection_i
+$$
+
+where all the coviariants are category treated as factors. And estimation with cross-validation comes out with AUC `r round(roc_data1$auc,2) ` (Supplementary 3). Figure2A shows both the observed and fitted probabilities of fatal injuries by age, postion in the vehicle and restraint use for the Motor Vehicle Occupant group with Extricate=FALSE, Alcohol=FALSE; Figure2B shows the observed and fitted probabilities of fatal injuries by age, Intersection for Non-Motor Vehicle Occupan group with Extricate=FALSE, Alcohol=not tested.
+
+
+```{r fig.height=6,fig.width=14,echo=FALSE,results='hide',message=FALSE,warning=FALSE}
+data_1 <- data.frame(A_AGE6=rep(unique(person_whole$A_AGE6),2))
+#data_1$A_EJECT <- rep(c(1,2,1,2),c(10,10,10,10))
+#data_1$A_ALCTES<- rep(c(1,2,1,2),c(10,10,10,10))
+data_1$EXTRICAT <- rep(0,18)
+data_1$A_ALCTES <- rep(1,18)
+#data_1$A_LOC <- rep(c(1,2),c(20,20))
+data_1$A_LOC <- rep(1,18)
+
+data_1$A_REST <- rep(c(1,2),c(9,9))
+data_2 <- do.call("rbind", replicate(6, data_1, simplify = FALSE))
+data_2$SEAT_POS <- rep(c(00,11,13,21,22,23),rep(18,6))
+data_2$predict <- round(predict(fit1,newdata = data_2,type = "response"),2)
+
+data_2$A_REST <- factor(data_2$A_REST)
+levels(data_2$A_REST) <- c("Used","Not Used")
+data_2$SEAT_POS <- factor(data_2$SEAT_POS)
+levels(data_2$SEAT_POS) <- c("Non-Motorist","Driver","Driver's side","Second seat left","Second seat middle","Second seat right")
+data_2$A_AGE6 <- factor(data_2$A_AGE6)
+levels(data_2$A_AGE6) <- c("<15","15-20","21-24","25-34","35-44","45-54","55-64","65-74","75+")
+
+fig2 <- ggplot(data_2[(data_2$SEAT_POS!="Non-Motorist"),], aes(x=(A_AGE6), group=interaction(A_REST,SEAT_POS), col=SEAT_POS, linetype=A_REST)) + geom_jitter(aes(y=predict)) + geom_line(aes(y=predict), size=1.2) + theme_bw() + theme(legend.position='bottom', legend.box='horizontal', plot.margin=rep(unit(0,"null"),4), text=element_text(size=9), legend.text=element_text(size=6)) + ggtitle('A') + ylab('Pr(Survivor=0)') + xlab('Age (interval)') + scale_linetype_manual('A_REST', values=c(1,3))
+
+data_1$A_LOC <- rep(c(2,3),c(9,9))
+data_1$A_ALCTES<- rep(3,18)
+data_1$A_REST <-rep(2,18) 
+data_2 <- do.call("rbind", replicate(6, data_1, simplify = FALSE))
+data_2$SEAT_POS <- rep(c(00,11,13,21,22,23),rep(18,6))
+data_2$predict <- predict(fit1,newdata = data_2,type = "response")
+data_2$SEAT_POS <- factor(data_2$SEAT_POS)
+levels(data_2$SEAT_POS) <- c("Non-Motorist","Driver","Driver's side","Second seat left","Second seat middle","Second seat right")
+data_2$A_AGE6 <- factor(data_2$A_AGE6)
+levels(data_2$A_AGE6) <- c("<15","15-20","21-24","25-34","35-44","45-54","55-64","65-74","75+")
+data_2$A_LOC <- factor(data_2$A_LOC)
+levels(data_2$A_LOC) <- c("Within an Intersection","Non-intersection")
+
+
+fig3 <- ggplot(data_2[(data_2$SEAT_POS=="Non-Motorist"),], aes(x=(A_AGE6), group=(A_LOC), col=(A_LOC), linetype=(A_LOC))) + geom_jitter(aes(y=predict)) + geom_line(aes(y=predict), size=1.2) + theme_bw() + theme(legend.position='bottom', legend.box='horizontal', plot.margin=rep(unit(0,"null"),4), text=element_text(size=9), legend.text=element_text(size=6)) + ggtitle('B')  + ylab('Pr(Survivor=0)') + xlab('Age (interval)') + scale_linetype_manual('A_LOC', values=c(1,3))
+
+title <- textGrob("Figure2 Final Model prediction with different factors", gp = gpar(fontface = "bold", cex = 1.5))
+
+grid.arrange(fig2, fig3, nrow=1,top=title)
+#main=textGrob("Final Model prediction with different factors",gp=gpar(fontsize=20,font=3))
+#response_data[[i]] <- test_data$A_PERINJ
+#predict_data[[i]] <- test_result
+
+#roc_data <- roc(response=unlist(response_data),predictor = #unlist(predict_data))
+```
+
+We observed a strong significant positive correlation of crash fatality with both the persons’ position in the crash and age. Here we summarize the probability of fatal injuries(Pr(Y>0) for some Position-Age strata(fixing Extricate=FALSE, Alcohol=FALSE, Intersection=vehicle Occupants).
+
+
+```{r echo=FALSE,results='hide',message=FALSE,warning=FALSE}
+data_1 <- data.frame(A_AGE6=rep(unique(person_whole$A_AGE6),2))
+data_1$A_ALCTES<- rep(c(1,2),c(9,9))
+data_1$EXTRICAT <- rep(0,18)
+data_1$A_ALCTES <- rep(1,18)
+data_1$A_LOC <- rep(1,18)
+data_1$A_REST <- rep(c(1,2),c(9,9))
+data_2 <- do.call("rbind", replicate(6, data_1, simplify = FALSE))
+data_2$SEAT_POS <- rep(c(00,11,13,21,22,23),rep(18,6))
+data_2$predict <- round(predict(fit1,newdata = data_2,type = "response"),2)
+data_3 <- data_2 %>% filter(A_AGE6 %in% c(3,4,5,6),A_LOC==1, A_ALCTES==1,SEAT_POS %in% c(11,13,21)) %>% arrange(A_AGE6,(A_REST),SEAT_POS)
+pp <- data_3$predict
+
+fit1 <- glm(A_PERINJ ~factor(SEAT_POS)+factor(A_AGE6) +factor(A_REST)+factor(A_ALCTES)+factor(A_LOC)+factor(EXTRICAT),family="binomial",data=select_person_whole)
+coef_final <- summary(fit1)
+coef_final <- coef_final$coefficients
+```
+
+
+
+\begin{table}[ht]
+\centering
+\renewcommand{\thetable}{\arabic{table}a}
+  \caption{Estimated Death Probability with Certain Factors}\label{first}
+\begin{tabular}{c|ccc|ccc}
+  \hline
+  & \multicolumn{3}{c|}{Restraint Used} & \multicolumn{3}{c}{Restraint Not Used} \\
+  \hline
+Age & {\tiny Pr(Y$>$0,Driver)} & {\tiny Pr(Y$>$0,Driver's Side)} & {\tiny Pr(Y$>$0,Seat Behind Driver)} & {\tiny Pr(Y$>$0,Driver)} & {\tiny Pr(Y$>$0,Driver's Side)} & {\tiny Pr(Y$>$0, Seat Behind Driver)} \\ 
+  \hline
+  21-24 & `r pp[1]` & `r pp[2]`& `r pp[3]` & `r pp[4]` & `r pp[5]` & `r pp[6]` \\ 
+  25-34 & `r pp[7]` & `r pp[8]`& `r pp[9]` & `r pp[10]` & `r pp[11]` & `r pp[12]` \\ 
+  35-44 & `r pp[13]` & `r pp[14]`& `r pp[15]` & `r pp[16]` & `r pp[17]` & `r pp[18]` \\ 
+  45-54 & `r pp[19]` & `r pp[20]`& `r pp[21]` & `r pp[22]` & `r pp[23]` & `r pp[24]` \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+\begin{table}[ht]
+\centering
+\addtocounter{table}{-1}
+\renewcommand{\thetable}{\arabic{table}b}
+  \caption{Estimated Coefficient with Standard Error}\label{second}
+\begin{tabular}{c|ccc|c|ccc}
+  \hline
+  & \multicolumn{3}{c|}{Compare to Non-Motor Vehicle Occupant} & &\multicolumn{3}{c|}{Compare to Age<15} \\
+  \hline
+ Position & Coefficient & Standard Error & P-value & Age & Coefficient & Standard Error  \\ 
+  \hline
+  Driver & `r round(coef_final[2,1],3)` & `r round(coef_final[2,2],3)`& `r round(coef_final[2,4],3)` & 25-34 & `r round(coef_final[17,1],3)` & `r round(coef_final[17,2],3)`& `r round(coef_final[17,4],3)` \\ 
+  Driver's right & `r round(coef_final[3,1],3)` & `r round(coef_final[3,2],3)`& `r round(coef_final[3,4],3)` & 45-54 & `r round(coef_final[19,1],3)` & `r round(coef_final[19,2],3)`& `r round(coef_final[19,4],3)` \\ 
+  Second row left & `r round(coef_final[4,1],3)` & `r round(coef_final[4,2],3)`& `r round(coef_final[4,4],3)` & 55-64 & `r round(coef_final[20,1],3)` & `r round(coef_final[20,2],3)`& `r round(coef_final[20,4],3)` \\ 
+  Second row right & `r round(coef_final[6,1],3)` & `r round(coef_final[6,2],3)`& `r round(coef_final[12,4],3)` & 65-74 & `r round(coef_final[21,1],3)` & `r round(coef_final[21,2],3)`& `r round(coef_final[21,4],3)`\\ 
+  Cargo Area & `r round(coef_final[12,1],3)` & `r round(coef_final[12,2],3)`& `r round(coef_final[12,4],3)` & 75+ & `r round(coef_final[22,1],3)` & `r round(coef_final[22,2],3)`& `r round(coef_final[22,4],3)` \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+
+## Conclusions
+
+Our analysis suggests that fatal injury is significantly correlated with the age and position of injuried persons in the crash. An injuried Non-Motor Vehicle Occupant has a higher fatality than Motor Vehicle Occupant, and injuried person in the second row middle seat has a lower fatality rate than other seats(e.g. The odds ratio of death in driver's right seat  is `r round(exp(coef_final[3,1]),3)` (95% confidence interval[`r round(exp(coef_final[3,1]-1.96*coef_final[3,2]),3)`,`r round(exp(coef_final[3,1]+1.96*coef_final[3,2]),3)`]) times of Non-Motorist. The chance of fatality tends to increase with the age of injured persons(e.g. The odds ratio of death for 45-54 years old persons in  `r round(exp(coef_final[19,1]),3)` (95% confidence interval[`r round(exp(coef_final[19,1]-1.96*coef_final[19,2]),3)`,`r round(exp(coef_final[19,1]+1.96*coef_final[19,2]),3)`]) times of persons < 15., with other factors held consistent. We also included many other confounders like belt usage and extrication – mainly for vehicle occupant, within intercross mainly for non-vehicle occupant and alcohol test, which improve the model fit and prediction, but do not remove the significant relationsip between the variables of interest.
+
+While we get compelling results from the analysis, our analysis is limited by the personal information provided by FARS. Other potentially important factors not included like general health condition, the type medical aid administered to rescuscitate, etc. can also contribute to the result of death from injuries. Despite these limitations, the factors of interest and confounders includeded still provide a good model fit and prediction. Our model may be of interest to people seeking to improve the survival of injured persons and to those estimating the level of severity and medical help needed (e.g., first responders) for a potentially fatal vehicle crash.
+
+
+## Reference
+
+[1] U.S Departmetn of Transportation "2015" Page.URL:https://www.transportation.gov/fastlane/2015-traffic-fatalities-data-has-just-been-released-call-action-download-and-analyze
+
+[2] Smith KM, Cummings P. Passenger seating position and the risk of passenger death in traffic crashes: a matched cohort study. Injury Prevention. 2006;12(2):83-86. doi:10.1136/ip.2005.010306.
+
+[3] World Health Organization,Road traffic injuries Page.URL:http://www.who.int/mediacentre/factsheets/fs358/en/
+
+[4] R Core Team (2012). ”R: A language and environment for statistical computing.” URL:
+http://www.R-project.org
+
+[5] David A. Freedman (2009). Statistical Models: Theory and Practice. Cambridge University Press. p. 128.
+
+[6] Geisser, Seymour (1993). Predictive Inference. New York, NY: Chapman and Hall. ISBN 0-412-03471-9.
+
+
